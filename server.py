@@ -1,88 +1,55 @@
 import socket
-import threading
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
+from Crypto.Random import get_random_bytes
 import os
 
-HEADER = 64
 PORT = 5001
 SERVER = socket.gethostbyname(socket.gethostname())
 ADDR = (SERVER, PORT)
-FORMAT = 'utf-8'
-DISCONNECT_MESSAGE = "!DISCONNECT"
 
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.bind(ADDR)
+# AES key for encryption (must be 16, 24, or 32 bytes)
+key = b'This is a key123'  # Ensure the key length is correct
 
-def handle_client(conn, addr):
-    print(f"[NEW CONNECTION] {addr} connected.")
-    connected = True
-    while connected:
-        msg_length = conn.recv(HEADER).decode(FORMAT) 
-        if msg_length:
-            msg_length = int(msg_length)
-            msg = conn.recv(msg_length).decode(FORMAT)
-            if msg == DISCONNECT_MESSAGE:
-                connected = False
-            print(f"[{addr}] {msg}")
-            conn.send("Msg received".encode(FORMAT))
+def encrypt_data(data, key):
+    iv = get_random_bytes(AES.block_size)
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    padded_text = pad(data.encode(), AES.block_size)
+    cipher_text = cipher.encrypt(padded_text)
+    return iv + cipher_text
 
-def start():
-    server.listen()
-    print(f"[LISTENING] server is listening on {SERVER}")
+def start_server():
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.bind(ADDR)
+    server_socket.listen(1)
+    print("Server listening on port 9999")
+
     while True:
-        conn, addr = server.accept()
-        thread = threading.Thread(target = handle_client, args=(conn, addr))
-        thread.start()
-        print(f"[ACTIVE CONNECTIONS] {threading.active_count() - 1}")
-        
-        # Receive the file request
-        file_path = conn.recv(1024).decode()
-        print(f"Client requested file: {file_path}")
+        print("Waiting for a connection...")
+        client_socket, addr = server_socket.accept()
+        print(f"Connected by {addr}")
 
-        # Check if the file exists
-        if os.path.isfile(file_path):
-            conn.send(b"FILE_FOUND")
-            with open(file_path, 'rb') as f:
-                # Send the file in chunks
-                while chunk := f.read(1024):
-                    conn.send(chunk)
-            print(f"File '{file_path}' sent to client.")
-        else:
-            conn.send(b"ERROR: File not found")
+        try:
+            # Receive the filename from the client
+            filename = client_socket.recv(1024).decode()
+            print(f"Client requested file: {filename}")
 
-        conn.close()
+            if os.path.isfile(filename):
+                with open(filename, "rb") as file:
+                    data = file.read()
+                    # TODO: Encrypt the file data before sending
+                    cipher_text = encrypt_data(data, key)
+                    print(f"Encrypted text (in bytes): {cipher_text}")
+                    # TODO: Send encrypted data to the client
+                    client_socket.send(cipher_text)
+                print(f"File '{filename}' sent to the client.")
+            else:
+                client_socket.send("File not found.".encode())
+                print("File not found.")
+        except Exception as e:
+            print(f"Error: {e}")
+        finally:
+            client_socket.close()
+            print("Connection closed.")
 
-if __name__ == "__main__":
-    print("[STARTING] server is starting...")
-    start()
-
-
-# def start_server(host='0.0.0.0', port=12345):
-#     # Create a socket object
-#     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-#     server_socket.bind((host, port))
-#     server_socket.listen(5)
-#     print(f"Server listening on {host}:{port}")
-
-#     while True:
-#         client_socket, client_address = server_socket.accept()
-#         print(f"Connection from {client_address}")
-        
-#         # Receive the file request
-#         file_path = client_socket.recv(1024).decode()
-#         print(f"Client requested file: {file_path}")
-
-#         # Check if the file exists
-#         if os.path.isfile(file_path):
-#             client_socket.send(b"FILE_FOUND")
-#             with open(file_path, 'rb') as f:
-#                 # Send the file in chunks
-#                 while chunk := f.read(1024):
-#                     client_socket.send(chunk)
-#             print(f"File '{file_path}' sent to client.")
-#         else:
-#             client_socket.send(b"ERROR: File not found")
-
-#         client_socket.close()
-
-# if __name__ == "__main__":
-#     start_server()
+start_server()

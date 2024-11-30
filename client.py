@@ -1,81 +1,52 @@
 import socket
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
 
-HEADER = 64
 PORT = 5001
 SERVER = socket.gethostbyname(socket.gethostname())
 ADDR = (SERVER, PORT)
-FORMAT = 'utf-8'
-DISCONNECT_MESSAGE = "!DISCONNECT"
 
-client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-client.connect(ADDR)
+# AES key for decryption (must match the server's key)
+key = b'This is a key123'  # Ensure the key length is correct
 
-def send(msg):
-    message = msg.encode(FORMAT)
-    msg_length = len(message)
-    send_length = str(msg_length).encode(FORMAT)
-    send_length += b' ' * (HEADER - len(send_length))
-    client.send(send_length)
-    client.send(message)
-    print(client.recv(2048).decode(FORMAT))
+def decrypt_data(encrypted_data, key):
+    iv = encrypted_data[:AES.block_size]
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    decrypted_padded_text = cipher.decrypt(encrypted_data[AES.block_size:])
+    decrypted_text = unpad(decrypted_padded_text, AES.block_size)
+    return decrypted_text.decode()
 
-
-def request_file(host='127.0.0.1', port=12345, file_path=''):
-    # Create a socket object
+def request_file(filename):
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client_socket.connect((host, port))
+    client_socket.connect(ADDR)
+        
+    try:
+        # Send the filename to the server
+        client_socket.send(filename.encode())
+        print(f"Requested file: {filename}")
 
-    # Send the file request
-    client_socket.send(file_path.encode())
+        # Receive the encrypted data from the server
+        encrypted_data = b''
+        while True:
+            part = client_socket.recv(1024)
+            if not part:
+                break
+            encrypted_data += part
+        
+        # TODO: Decrypt the received data
+        decrypted_text = decrypt_data(encrypted_data, key)
+        print(f"Decrypted text: {decrypted_text}")
+        # TODO: Save the decrypted data to a file
+        output_filename = f"decrypted_{filename}"  # Save as a new file
+        with open(output_filename, "w", encoding="utf-8") as output_file:
+            output_file.write(decrypted_text)
+        print(f"File '{output_filename}' received and saved.")
+        
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        client_socket.close()
+        print("Connection closed.")
 
-    # Check if the file exists on the server
-    response = client_socket.recv(1024).decode()
-    if response == "FILE_FOUND":
-        with open('received_' + file_path.split('/')[-1], 'wb') as f:
-            # Receive the file in chunks
-            while chunk := client_socket.recv(1024):
-                f.write(chunk)
-        print(f"File '{file_path}' received and saved as 'received_{file_path.split('/')[-1]}'.")
-    else:
-        print("ERROR: File not found on server")
-
-    client_socket.close()
-
-if __name__ == "__main__":
-    # Replace 'example.txt' with the path to the file you want to request
-    request_file(file_path='example.txt')
-
-send("Hello World!")
-input()
-send("Hello World Again!")
-input()
-send("Goodbye World!")
-send(DISCONNECT_MESSAGE)
-
-
-
-
-# def request_file(host='127.0.0.1', port=12345, file_path=''):
-#     # Create a socket object
-#     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-#     client_socket.connect((host, port))
-
-#     # Send the file request
-#     client_socket.send(file_path.encode())
-
-#     # Check if the file exists on the server
-#     response = client_socket.recv(1024).decode()
-#     if response == "FILE_FOUND":
-#         with open('received_' + file_path.split('/')[-1], 'wb') as f:
-#             # Receive the file in chunks
-#             while chunk := client_socket.recv(1024):
-#                 f.write(chunk)
-#         print(f"File '{file_path}' received and saved as 'received_{file_path.split('/')[-1]}'.")
-#     else:
-#         print("ERROR: File not found on server")
-
-#     client_socket.close()
-
-# if __name__ == "__main__":
-#     # Replace 'example.txt' with the path to the file you want to request
-#     request_file(file_path='example.txt')
+filename = input("Enter the filename to request: ")
+request_file(filename)
